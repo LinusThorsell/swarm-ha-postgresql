@@ -1,0 +1,6 @@
+services:
+  patroni:
+    image: linusthorsell/patroni
+    build:
+      context: ./patroni
+      dockerfile: Dockerfile

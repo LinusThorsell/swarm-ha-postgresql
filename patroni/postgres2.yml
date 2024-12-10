@@ -1,0 +1,65 @@
+scope: postgres_cluster
+name: postgres2
+
+restapi:
+  listen: 0.0.0.0:8009
+  connect_address: postgres2:8009
+  # BEFORE PRODUCTION! Setup SSL certificates.
+  # cafile: /etc/ssl/certs/ssl-cacert-snakeoil.pem
+  # certfile: /etc/ssl/certs/ssl-cert-snakeoil.pem
+  # keyfile: /etc/ssl/private/ssl-cert-snakeoil.key
+
+etcd:
+  host: etcd:2379
+  # BEFORE PRODUCTION! Run multiple etcd instances. Like follows:
+  #hosts:
+  #- host1:port1
+  #- host2:port2
+
+# The bootstrap configuration. Works only for initial setup.
+# If the cluster is already initialized, all changes in the `bootstrap` section are ignored!
+bootstrap:
+  # WARNING! If you want to change any of the parameters that were set up
+  # via `bootstrap.dcs` section, please use `patronictl edit-config`!
+  dcs:
+    ttl: 30
+    loop_wait: 10
+    retry_timeout: 10
+    maximum_lag_on_failover: 1048576
+    postgresql:
+      use_pg_rewind: true
+      # BEFORE PRODUCTION! Input real rules for your servers. This default is relaxed
+      # See: https://www.postgresql.org/docs/current/auth-pg-hba-conf.html
+      pg_hba:
+      - host replication replicator 127.0.0.1/32 md5
+      - host replication replicator 10.0.0.0/8 md5
+      - host all all 0.0.0.0/0 md5
+  initdb:
+  - encoding: UTF8
+  - data-checksums
+
+postgresql:
+  listen: 0.0.0.0:5433
+  connect_address: postgres2:5433
+  data_dir: /var/lib/postgresql/data
+  bin_dir: /usr/lib/postgresql/15/bin
+  pgpass: /tmp/pgpass2
+  authentication:
+    # BEFORE PRODUCTION! Set secure passwords here.
+    replication:
+      username: replicator
+      password: rep-pass
+    superuser:
+      username: postgres
+      password: patroni
+    rewind:
+      username: rewind_user
+      password: rewind_password
+  parameters:
+    unix_socket_directories: '/var/run/postgresql/sockets'
+
+tags:
+    noloadbalance: false
+    clonefrom: false
+    nosync: false
+    nostream: false

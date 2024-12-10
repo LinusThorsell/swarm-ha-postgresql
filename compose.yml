@@ -1,0 +1,212 @@
+# Make sure your PostgreSQL cluster
+# can communicate over the network.
+networks:
+  swarm-network:
+    driver: overlay
+
+# Configuration files loaded from
+# the local directories into the services
+# on swarm deploy.
+configs:
+  haproxy_config:
+    file: ./haproxy/haproxy.cfg
+  postgres1_config:
+    file: ./patroni/postgres1.yml
+  postgres2_config:
+    file: ./patroni/postgres2.yml
+  postgres3_config:
+    file: ./patroni/postgres3.yml
+
+# Certificates for communication
+# to the ETCD keyvalue service.
+secrets:
+  registry_certificate:
+    file: ./registry/certs/public_key.pem
+  registry_certificate_key:
+    file: ./registry/certs/private_key.pem
+
+volumes:
+  # Volume for the registry.
+  # You may use an external registry
+  # if you prefer. Then this is not needed.
+  registry_data:
+    external: true
+  etcd_data:
+    external: true
+  # One data + One sockets volume per
+  # PostgreSQL cluster instance.
+  # INSTANCE 1
+  postgres1_data:
+    external: true
+  postgres1_sockets:
+    external: true
+  # INSTANCE 2
+  postgres2_data:
+    external: true
+  postgres2_sockets:
+    external: true
+  # INSTANCE 3
+  postgres3_data:
+    external: true
+  postgres3_sockets:
+    external: true
+
+services:
+  # You may use an external registry
+  # if you prefer. Then this is not needed.
+  registry:
+    image: registry:2
+    ports:
+      - "5000:5000"
+    secrets:
+      - registry_certificate
+      - registry_certificate_key
+    environment:
+      REGISTRY_HTTP_TLS_CERTIFICATE: /run/secrets/registry_certificate
+      REGISTRY_HTTP_TLS_KEY: /run/secrets/registry_certificate_key
+    networks:
+      - swarm-network
+    volumes:
+      - registry_data:/var/lib/registry
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.labels.role == manager
+
+  haproxy:
+    image: haproxy:latest
+    ports:
+      - "5432:5432" # PostgreSQL
+    configs:
+      - source: haproxy_config
+        target: /usr/local/etc/haproxy/haproxy.cfg
+    networks:
+      - swarm-network
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.labels.role == manager
+
+  etcd:
+    image: bitnami/etcd:latest
+    networks:
+      - swarm-network
+    ports:
+      - "2379:2379" # Client communication
+      - "2380:2380" # Peer communication
+    environment:
+      - ETCD_ENABLE_V2=true
+      - ETCD_LISTEN_PEER_URLS=http://0.0.0.0:2380
+      - ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:2379
+      - ETCD_INITIAL_ADVERTISE_PEER_URLS=http://etcd:2380
+      - ETCD_ADVERTISE_CLIENT_URLS=http://etcd:2379
+      - ETCD_INITIAL_CLUSTER_TOKEN=etcd-cluster
+      - ETCD_INITIAL_CLUSTER=etcd=http://etcd:2380
+      - ETCD_INITIAL_CLUSTER_STATE=new
+      - ETCD_NAME=etcd
+      - ALLOW_NONE_AUTHENTICATION=yes
+    volumes:
+      - etcd_data:/bitnami/etcd
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.role == manager
+
+  # PostgreSQL instances.
+  postgres1:
+    image: 192.168.122.92:5000/patroni:latest
+    networks:
+      - swarm-network
+    ports:
+      - "8008:8008" # Patroni REST API
+    configs:
+      - source: postgres1_config
+        target: /etc/patroni.yml
+    environment:
+      - PATRONI_NAME=postgres1
+      - PATRONI_SCOPE=postgres_cluster
+      - PATRONI_ETCD_HOSTS=etcd:2379
+      - PATRONI_RESTAPI_LISTEN=0.0.0.0:8008
+      - PATRONI_RESTAPI_CONNECT_ADDRESS=postgres1:8008
+      - PATRONI_POSTGRESQL_LISTEN=0.0.0.0:5432
+      - PATRONI_POSTGRESQL_CONNECT_ADDRESS=postgres1:5432
+      - PATRONI_POSTGRESQL_DATA_DIR=/var/lib/postgresql/data
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=adminpassword
+      - PATRONI_LOG_LEVEL=DEBUG
+    volumes:
+      - postgres1_data:/var/lib/postgresql/data
+      - postgres1_sockets:/var/run/postgresql/sockets
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.role == manager
+
+  postgres2:
+    image: 192.168.122.92:5000/patroni:latest
+    networks:
+      - swarm-network
+    ports:
+      - "8009:8009" # Patroni REST API
+    configs:
+      - source: postgres2_config
+        target: /etc/patroni.yml
+    environment:
+      - PATRONI_NAME=postgres2
+      - PATRONI_SCOPE=postgres_cluster
+      - PATRONI_ETCD_HOSTS=etcd:2379
+      - PATRONI_RESTAPI_LISTEN=0.0.0.0:8009
+      - PATRONI_RESTAPI_CONNECT_ADDRESS=postgres2:8009
+      - PATRONI_POSTGRESQL_LISTEN=0.0.0.0:5433
+      - PATRONI_POSTGRESQL_CONNECT_ADDRESS=postgres2:5433
+      - PATRONI_POSTGRESQL_DATA_DIR=/var/lib/postgresql/data
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=adminpassword
+      - PATRONI_LOG_LEVEL=DEBUG
+    volumes:
+      - postgres2_data:/var/lib/postgresql/data
+      - postgres2_sockets:/var/run/postgresql/sockets
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.worker == 1
+
+  postgres3:
+    image: 192.168.122.92:5000/patroni:latest
+    networks:
+      - swarm-network
+    ports:
+      - "8010:8010" # Patroni REST API
+    configs:
+      - source: postgres3_config
+        target: /etc/patroni.yml
+    environment:
+      - PATRONI_NAME=postgres3
+      - PATRONI_SCOPE=postgres_cluster
+      - PATRONI_ETCD_HOSTS=etcd:2379
+      - PATRONI_RESTAPI_LISTEN=0.0.0.0:8010
+      - PATRONI_RESTAPI_CONNECT_ADDRESS=postgres3:8010
+      - PATRONI_POSTGRESQL_LISTEN=0.0.0.0:5434
+      - PATRONI_POSTGRESQL_CONNECT_ADDRESS=postgres3:5434
+      - PATRONI_POSTGRESQL_DATA_DIR=/var/lib/postgresql/data
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=adminpassword
+      - PATRONI_LOG_LEVEL=DEBUG
+    volumes:
+      - postgres3_data:/var/lib/postgresql/data
+      - postgres3_sockets:/var/run/postgresql/sockets
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.worker == 2
+
